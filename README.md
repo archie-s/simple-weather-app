@@ -23,7 +23,7 @@ PIL (Pillow) for image handling
 Clone the repository to your local machine.
 
 Copy code: 
-git clone https://github.com/your-username/weather-app.git
+git clone: https://github.com/archie-s/simple-weather-app/tree/main
 
 Install the required dependencies.
 
