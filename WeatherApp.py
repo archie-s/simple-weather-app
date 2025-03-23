@@ -1,110 +1,122 @@
-import tkinter as tk
-from tkinter import ttk
+import customtkinter as ctk
 import requests
-from tkinter import messagebox
+import geocoder
+import time
 from PIL import Image, ImageTk
-from datetime import datetime, timedelta
+from plyer import notification
+from datetime import datetime
 
-# Initialize Window
-root = tk.Tk()
-root.title("Weather App")
+# OpenWeather API Key
+API_KEY = "cbf75635d2b92ecc0fb5937a868b6ccc"
 
-# Create a themed ttk style
-style = ttk.Style(root)
-style.theme_use("clam")
+# Set Dark Mode Theme
+ctk.set_appearance_mode("dark")
+ctk.set_default_color_theme("blue")
 
-# Function to get weather information from OpenWeatherMapAPI
-def get_weather(city):
-    API_key = "cbf75635d2b92ecc0fb5937a868b6ccc"
-    
-    # Modify the URL to fetch forecast data
-    url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&appid={API_key}"
+# Create App Window
+app = ctk.CTk()
+app.geometry("500x700")
+app.title("Weather App")
+
+# Function to Get GPS-Based Location
+def get_location():
+    try:
+        g = geocoder.ip("me")  # Get approximate location using IP
+        if g.ok:
+            return g.city, g.latlng[0], g.latlng[1]
+    except:
+        return None, None, None
+
+# Function to Fetch Weather Data
+def get_weather(lat, lon):
+    url = f"https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid={API_KEY}"
     res = requests.get(url)
 
-    if res.status_code == 404:
-        messagebox.showerror("Error", "City not found")
+    if res.status_code != 200:
         return None
 
-    # Parse the response JSON to get weather information
     weather_data = res.json()
-
-    # Extract the current weather information (you can modify this as needed)
     current_weather = weather_data['list'][0]
+
     icon_id = current_weather['weather'][0]['icon']
     temperature = current_weather['main']['temp'] - 273.15
     description = current_weather['weather'][0]['description']
+    humidity = current_weather['main']['humidity']
+    wind_speed = current_weather['wind']['speed']
+
     city = weather_data['city']['name']
     country = weather_data['city']['country']
 
-    # Get the icon URL and return all the weather information
     icon_url = f"https://openweathermap.org/img/wn/{icon_id}@2x.png"
-    return icon_url, temperature, description, city, country, weather_data['list'][1:]
 
-# Function to search for weather in a city
-def search():
-    city = city_entry.get()
-    result = get_weather(city)
+    return icon_url, temperature, description, humidity, wind_speed, city, country, weather_data['list'][1:]
+
+# Function to Check Rain in Next Few Hours
+def check_rain(forecast):
+    for entry in forecast[:5]:  # Check next ~15 hours
+        if "rain" in entry["weather"][0]["description"].lower():
+            return True
+    return False
+
+# Function to Update Weather Information
+def update_weather():
+    city, lat, lon = get_location()
+    if not city:
+        return
+
+    result = get_weather(lat, lon)
     if result is None:
         return
 
-    # If the city is found, unpack the weather information
-    icon_url, temperature, description, city, country, forecast = result
+    icon_url, temperature, description, humidity, wind_speed, city, country, forecast = result
     location_label.configure(text=f"{city}, {country}")
 
-    # Get the weather icon image from the URL and update the icon label
+    # Fetch and display weather icon
     response = requests.get(icon_url, stream=True)
     image = Image.open(response.raw).convert("RGBA")
-    icon = ImageTk.PhotoImage(image)
+    # Convert to CTkImage and specify size
+    icon = ctk.CTkImage(light_image=image, size=(100, 100))
     icon_label.configure(image=icon)
     icon_label.image = icon
 
-    # Update the temperature and description labels
+    # Update temperature, humidity, and wind speed
     temperature_label.configure(text=f"Temperature: {temperature:.2f}°C")
-    description_label.configure(text=f"Description: {description}")
+    description_label.configure(text=f"Condition: {description.capitalize()}")
+    humidity_label.configure(text=f"Humidity: {humidity}%")
+    wind_label.configure(text=f"Wind Speed: {wind_speed} m/s")
 
-    # Display future weather predictions for the next day
-    next_day_forecast = filter_next_day_forecast(forecast)
-    formatted_forecast = "\n".join([f"{format_future_date(entry['dt_txt'])}: {entry['weather'][0]['description']}" for entry in next_day_forecast])
-    forecast_label.configure(text=f"Future Predictions for the Next Day:\n{formatted_forecast}")
+    # Check for Rain Alert
+    if check_rain(forecast):
+        notification.notify(
+            title="Weather Alert ☔",
+            message="Rain is expected in your area in the next few hours.",
+            timeout=10
+        )
 
-def filter_next_day_forecast(forecast):
-    # Filter the forecast data to include only entries for the next day
-    tomorrow = datetime.now() + timedelta(days=1)
-    next_day_forecast = [entry for entry in forecast if datetime.strptime(entry['dt_txt'], "%Y-%m-%d %H:%M:%S") < tomorrow + timedelta(days=1) and datetime.strptime(entry['dt_txt'], "%Y-%m-%d %H:%M:%S") >= tomorrow]
-    return next_day_forecast
+# UI Elements
+location_label = ctk.CTkLabel(app, text="Fetching location...", font=("Arial", 20))
+location_label.pack(pady=15)
 
-def format_future_date(date_str):
-    # Convert the date string to a more readable format
-    dt_object = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
-    formatted_date = dt_object.strftime("%A, %B %d, %Y %I:%M %p")
-    return formatted_date
+icon_label = ctk.CTkLabel(app, text="")
+icon_label.pack()
 
-# Entry widget -> to enter the city name
-city_entry = ttk.Entry(root, font=("Helvetica", 18), width=30)
-city_entry.grid(row=0, column=0, padx=10, pady=10, sticky="w")
+temperature_label = ctk.CTkLabel(app, text="Temperature: --°C", font=("Arial", 18))
+temperature_label.pack(pady=10)
 
-# Button widget -> to search for weather information
-search_button = ttk.Button(root, text="Search", command=search, style="TButton")
-search_button.grid(row=0, column=1, padx=10, pady=10, sticky="e")
+description_label = ctk.CTkLabel(app, text="Condition: --", font=("Arial", 16))
+description_label.pack(pady=5)
 
-# Label widget -> to show the city/country name
-location_label = tk.Label(root, font=("Helvetica", 25))
-location_label.grid(row=1, column=0, columnspan=2, pady=10)
+humidity_label = ctk.CTkLabel(app, text="Humidity: --%", font=("Arial", 14))
+humidity_label.pack(pady=5)
 
-# Label widget -> to show the weather icon
-icon_label = tk.Label(root)
-icon_label.grid(row=2, column=0, columnspan=2, pady=10)
+wind_label = ctk.CTkLabel(app, text="Wind Speed: -- m/s", font=("Arial", 14))
+wind_label.pack(pady=5)
 
-# Label widget -> to show the temperature
-temperature_label = tk.Label(root, font=("Helvetica", 20))
-temperature_label.grid(row=3, column=0, columnspan=2, pady=5)
+update_button = ctk.CTkButton(app, text="Update Weather", command=update_weather)
+update_button.pack(pady=20)
 
-# Label widget -> to show the weather description
-description_label = tk.Label(root, font=("Helvetica", 20))
-description_label.grid(row=4, column=0, columnspan=2, pady=5)
+# Fetch Weather on Startup
+update_weather()
 
-# Label widget -> to show future weather predictions
-forecast_label = tk.Label(root, font=("Helvetica", 12), wraplength=400, justify="left")
-forecast_label.grid(row=5, column=0, columnspan=2, pady=10)
-
-root.mainloop()
+# Run App
+app.mainloop()
